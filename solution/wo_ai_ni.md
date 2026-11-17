@@ -130,6 +130,16 @@ only needs "nearest player of each team".
 - **Touches as direct evidence of possession.** Adding each detected touch as evidence for the
   touching team created more possessions (377 → 425), because deflections and tackles are touches
   but not controlled gains. Touches are used only to gate proximity, as in §1.2.
+- **Moving the start of stoppages.** The public window shows one stoppage that we start about 9 s
+  early, where the tracker lost the ball in open play, and two whistle stoppages that we start about
+  1 s late. Before changing anything we checked on the full match, without ground truth, whether
+  either is a general error. The 29 stoppages that begin with the ball lost well inside the pitch
+  have the same activity profile as the 14 stoppages whose start is certain (ball tracked over a
+  line after live play): median 2.0 m/s at our start and 1.4 m/s one second later, against 2.3 and
+  1.7. Where the whistle detector fires within 4 s of a decoded start, the whistle is a median 0.1 s
+  before our start when the ball is in view (18 cases) and 0.6 s after it when the ball is lost
+  (16 cases), with a spread of about ±1.5 s in both. Neither check supports a systematic shift, so
+  the decoder was left as it is.
 - **Smart Tagging phases as a consistency check.** The automatic phase tags (Build Up, Progression,
   …) carry a team. We used the share of frames in those phases that our labels give to the tagged
   team as a ground-truth-free check when comparing variants: 0.467 own / 0.180 opponent before the
@@ -155,8 +165,17 @@ that the labels disagreed there, and the fix itself uses the tracking only. The 
 exception of §1.3 came from a check that needs no ground truth (restarts landing exactly where the
 3 s hold expired) and from watching those moments on the video; a first form of it, applied to
 goal lines too, produced a spurious possession inside a goal-kick stoppage of the public window,
-which is why it is limited to touchlines. The public-window scores are identical before and after. We ran no parameter sweeps against it and the numeric constants (costs, radii, speeds) were set from football reasoning
-before scoring, not selected by score. It was never used as training data.
+which is why it is limited to touchlines. The public-window scores are identical before and after.
+
+We did score a small number of variants on it: pass speed 5 / 7 / 10 m/s, whistle weight 0 / 9 / 18,
+touch threshold 3 and 6 m/s either side of the shipped 4, and touches as direct evidence. Pass speed
+and whistle weight gave identical possession scores at every value, so the window did not choose
+them. A touch threshold of 3 scored the same as the shipped value and 6 scored lower. The pass-by
+rule and the decision not to use touches as evidence agree with the window, but both rest on the
+ground-truth-free checks of §1.2 and §2.1 (possession counts on the full match and the tag check).
+The later changes (goalkeeper correction, ball-out rule) were kept although the window's possession
+score at IoU 0.5 fell from 0.688 to 0.643 with them. The remaining constants (costs, radii, speeds)
+were set from football reasoning before scoring. The window was never used as training data.
 
 ## 4. Possession rules implemented
 
@@ -189,7 +208,9 @@ about the full-match score. Full-match output: 282 possessions, 126 stoppages, l
 - **Fouls.** The stoppage starts at the whistle, which the tracking cannot hear; our dead-ball
   onset there lags by roughly a second, until activity falls. The whistle detector of §2.1 is not
   yet precise enough to fix this.
-- **Very short possessions** (under ~1 s) are deliberately not reported.
+- **Very short possessions** are mostly missed: a change of possession needs about 0.6 s of clear
+  control, and only 3 % of our possessions last under a second. The public window contains
+  possessions of 0.8 s and 1.3 s, so the reference counts some that we do not.
 - **Aerial balls** are projected onto the pitch by the tracker, so "nearest player" can be wrong
   under a high ball, and a high ball near the far touchline can look out.
 - **Dead-ball share** (53 % of graded frames) is on the high side. Part of it is real — the
