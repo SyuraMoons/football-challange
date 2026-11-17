@@ -174,20 +174,29 @@ def forced_dead(f):
     """Frames where the ball is certainly dead: it is tracked clearly outside the pitch.
 
     The stoppage starts when the ball crosses the line and lasts at least MIN_DEAD frames after
-    the ball was last seen outside -- nobody restarts faster than that."""
+    the ball was last seen outside. One exception: a ball that went over a touchline and is seen
+    back inside the pitch sooner. Play restarts there with a throw-in, taken by hand from outside
+    the line, so the ball coming back is the throw-in itself (or it was a high ball that only
+    looked out) and the certainty ends on that frame. Behind a goal line the ball is fetched and
+    placed for a goal kick or corner, so coming back in says nothing and the hold stays."""
     forced = np.zeros(f["n"], dtype=bool)
     outside = f["out"] > 0.0
     for a, b in zip(*_runs(outside)):
         if f["out"][a:b].max() > OUT_CLEAR and b - a >= 3:
-            forced[a:min(f["n"], b + MIN_DEAD)] = True
+            hold = MIN_DEAD
+            if f["out_side"][a:b].max() >= f["out"][a:b].max():      # out over a touchline
+                back = np.flatnonzero(f["vis"][b:b + MIN_DEAD])
+                if len(back):
+                    hold = back[0]
+            forced[a:b + hold] = True
     return forced
 
 
-def drop_short_dead(path, forced, ev):
+def drop_short_dead(path):
     """A stoppage shorter than MIN_DEAD is not a stoppage: give it back to the surrounding play."""
     path = path.copy()
     for a, b in zip(*_runs(path == D)):
-        if b - a >= MIN_DEAD or forced[a:b].any():
+        if b - a >= MIN_DEAD:
             continue
         if a > 0:
             path[a:b] = path[a - 1]
@@ -297,7 +306,7 @@ def decode(f, blocks, tags=(), whistles=(), params=None, verbose=True):
             score[:, 0] -= pen
             score[:, 1] -= pen
             path = np.minimum(viterbi(score, trans), D).astype(np.int8)
-        path = drop_short_dead(path, forced[sl] | ko_dead[sl], ev[sl])
+        path = drop_short_dead(path)
         path = refine_restarts(path, f["bs"][sl], f["vis"][sl])
         path = snap_switches(path, snap_ev[sl])
         labels[sl] = LETTERS[path]

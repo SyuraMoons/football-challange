@@ -77,6 +77,8 @@ def compute(d, blocks):
     # how far outside the pitch the ball is (0 inside)
     out = np.maximum.reduce([-bx, bx - L, -by, by - W, np.zeros(n)])
     out = np.where(vis, out, 0.0)
+    # the same, counting only the touchlines (the long sides, where play restarts with a throw-in)
+    out_side = np.where(vis, np.maximum.reduce([-by, by - W, np.zeros(n)]), 0.0)
 
     # nearest player of each team to the ball
     dist = np.hypot(px - bx[:, None].astype(np.float32), py - by[:, None].astype(np.float32))
@@ -87,7 +89,7 @@ def compute(d, blocks):
 
     touch = touches(bx, by, dH, dA)
 
-    return dict(vis=vis, act=act, bs=bs_s, bmax=bmax, out=out, dH=dH, dA=dA, touch=touch, n=n)
+    return dict(vis=vis, act=act, bs=bs_s, bmax=bmax, out=out, out_side=out_side, dH=dH, dA=dA, touch=touch, n=n)
 
 
 TOUCH_K = 8          # frames either side over which the ball velocity is measured

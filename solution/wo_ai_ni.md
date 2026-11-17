@@ -75,6 +75,16 @@ Hard evidence added to the scores:
 - **Ball tracked out of the pitch.** If the ball is outside the lines for ≥ 3 frames and reaches
   1 m outside, the ball is dead from the frame it crosses the line until at least 3 s after it was
   last seen outside.
+- **Except when it comes back over a touchline.** A throw-in is taken by hand from outside the
+  line, so a ball that went out over a touchline and is tracked back inside the pitch is the
+  throw-in being taken, and the 3 s hold ends on that frame. The same exception covers a high ball
+  near the far touchline, which the tracker projects outside the pitch although play goes on:
+  it is back inside within a second, and the resulting sub-3 s "stoppage" is then discarded by
+  the rule below. Behind a goal line the hold stays, because there the ball is fetched and placed
+  for a goal kick or corner and its return says nothing. In the first version the hold applied
+  everywhere, and 21 of the 56 ball-out events ended with play resuming on the exact frame the
+  hold expired — the model wanted to restart earlier and was not allowed to. This changes 1,281
+  graded frames in 19 places.
 - **Kick-offs.** Smart Tagging marks each kick-off with a ~5 s window bracketing the kick. The ball
   is forced dead in the first second of the window and alive in the last; before the kick-off that
   starts a half, the ball is dead. If the tracker has not found the ball by the end of the window,
@@ -82,8 +92,7 @@ Hard evidence added to the scores:
 
 Post-processing, all deterministic:
 
-- **No stoppage shorter than 3 s** unless the ball was seen out; shorter ones are returned to the
-  preceding possession.
+- **No stoppage shorter than 3 s**; shorter ones are returned to the preceding possession.
 - **Change of possession is placed where control is gained.** Viterbi is indifferent to where a
   switch sits in a neutral stretch, so each `H↔A` switch is moved to the first frame of new-team
   control (or new-team touch) after the last frame of old-team control.
@@ -124,7 +133,8 @@ only needs "nearest player of each team".
 - **Smart Tagging phases as a consistency check.** The automatic phase tags (Build Up, Progression,
   …) carry a team. We used the share of frames in those phases that our labels give to the tagged
   team as a ground-truth-free check when comparing variants: 0.467 own / 0.180 opponent before the
-  pass-by rule, 0.485 / 0.157 after. They are not an input to the model.
+  pass-by rule, 0.485 / 0.157 after; 0.489 / 0.164 for the submitted file. They are not an input
+  to the model.
 
 ## 3. Training data
 
@@ -141,7 +151,11 @@ dead-ball-in-view component, the ball-out rule and the 3 s minimum stoppage. Eac
 nothing broke; the touch-evidence variant scored lower there as well as on the tag check, and was
 dropped. The goalkeeper correction came from watching a rendering of the output on the video
 (a goalkeeper on the ball labelled as the other team); the public window was then used to confirm
-that the labels disagreed there, and the fix itself uses the tracking only. We ran no parameter sweeps against it and the numeric constants (costs, radii, speeds) were set from football reasoning
+that the labels disagreed there, and the fix itself uses the tracking only. The touchline
+exception of §1.3 came from a check that needs no ground truth (restarts landing exactly where the
+3 s hold expired) and from watching those moments on the video; a first form of it, applied to
+goal lines too, produced a spurious possession inside a goal-kick stoppage of the public window,
+which is why it is limited to touchlines. The public-window scores are identical before and after. We ran no parameter sweeps against it and the numeric constants (costs, radii, speeds) were set from football reasoning
 before scoring, not selected by score. It was never used as training data.
 
 ## 4. Possession rules implemented
@@ -164,7 +178,7 @@ before scoring, not selected by score. It was never used as training data.
 | this method | 0.898 | 0.600 |
 
 17 possessions is a very small sample (bootstrap interval for spellF1: 0.39–0.77); we make no claim
-about the full-match score. Full-match output: 284 possessions, 130 stoppages, labels H 30 % / A
+about the full-match score. Full-match output: 282 possessions, 126 stoppages, labels H 30 % / A
 17 % / D 53 % of graded frames.
 
 ## 6. Limitations
@@ -178,8 +192,12 @@ about the full-match score. Full-match output: 284 possessions, 130 stoppages, l
 - **Very short possessions** (under ~1 s) are deliberately not reported.
 - **Aerial balls** are projected onto the pitch by the tracker, so "nearest player" can be wrong
   under a high ball, and a high ball near the far touchline can look out.
-- **Dead-ball share** (54 % of graded frames) is on the high side; some slow build-up may be
-  absorbed into stoppages.
+- **Dead-ball share** (53 % of graded frames) is on the high side. Part of it is real — the
+  graded second half begins almost two minutes before its kick-off, and the stoppages before the
+  four after-goal kick-offs that Smart Tagging marks, plus one other stop of two and a half
+  minutes, add up to about twelve minutes — but some slow build-up may be absorbed into
+  stoppages.
+- **High balls near a goal line** can still be read as out; only the touchline case is handled.
 - **The tracked ball is smoothed** over about half a second, so touches are located to within a
   few frames only, and light touches during a dribble are not detected at all.
 

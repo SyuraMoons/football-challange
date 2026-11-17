@@ -14,7 +14,8 @@ The run takes about 20 s on a laptop, uses no randomness, and reads only
 The first run writes a parse cache, `data/tactical/_cache_atd.npz` (git-ignored with the rest of `data/`).
 
 Built with Python 3.14.3 and numpy 2.5.5; SHA-1 of the file it produced there:
-`8f4cbd437e094e2cc05fe7292670cb7461719093`.
+`662f08d72b2374ba0b4c006e2b8a6376138a1dbd`. The same file comes out with numpy 2.4.4. The code
+uses only numpy and the standard library; other versions should work but were not tested.
 
 | file | what |
 |---|---|
