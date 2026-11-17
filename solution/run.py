@@ -20,8 +20,8 @@ def main():
                     help="also use the referee-whistle detector (needs ffmpeg; not used for the submission)")
     args = ap.parse_args()
     d = atd.load()
-    f = features.compute(d)
     blocks = [(a, b) for _, a, b in half_video_blocks(GAME)]
+    f = features.compute(d, blocks)
     tags = smart_tagging.load()
     labels, _ = model.decode(f, blocks, tags, whistle.detect() if args.whistle else ())
     with open(args.out, "w") as fh:

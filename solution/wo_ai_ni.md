@@ -47,6 +47,15 @@ within 1.5 m and the other team is at least 1 m further away, fades linearly to 
 nearest player is 3.5 m away, and is zero when both teams are equally close (a challenge) or the
 ball is not tracked. A ball in flight or a contested ball therefore says nothing.
 
+**Goalkeepers are put back on their own team.** The tracker keeps one slot per goalkeeper, but
+for about a tenth of the match it places that slot on the goalkeeper at the other end, who plays
+for the other team; every back-pass and goal kick in those stretches was then credited to the
+wrong side. A goalkeeper slot is recognised from the tracking itself (a track that spends more
+than 80 % of its time within penalty-area depth of a goal line), and on each frame it is given to
+the team defending the half of the pitch it stands in. Which team defends which end in each half
+is read from the mean position of each team's outfield tracks. This changes 1,699 graded frames
+and removes 19 possessions (303 → 284).
+
 **A ball going past is not a ball controlled.** A pass that travels within reach of an opponent
 would otherwise count as control by that opponent. We detect *touches* as changes of the ball's
 velocity (more than 4 m/s between the 8 frames before and the 8 frames after, with a player within
@@ -95,7 +104,8 @@ We never output `X` on graded frames; ungraded frames are `X`.
 | tactical video, audio | tried, not in the submission | see §2.1 |
 | broadcast video / ATD / homography | no | not synchronised to the reference timeline |
 
-Track identities are not used: the model only needs "nearest player of each team".
+Track identities are not used, apart from recognising the two goalkeeper slots (§1.2): the model
+only needs "nearest player of each team".
 
 ### 2.1 Things tried and dropped
 
@@ -129,7 +139,9 @@ and showed that stoppages with the ball in view were being missed, which led to 
 dead-ball-in-view component, the ball-out rule and the 3 s minimum stoppage. Each later change
 (pass-by rule, touch evidence, whistle, kick-off hold) was also scored on it as a check that
 nothing broke; the touch-evidence variant scored lower there as well as on the tag check, and was
-dropped. We ran no parameter sweeps against it and the numeric constants (costs, radii, speeds) were set from football reasoning
+dropped. The goalkeeper correction came from watching a rendering of the output on the video
+(a goalkeeper on the ball labelled as the other team); the public window was then used to confirm
+that the labels disagreed there, and the fix itself uses the tracking only. We ran no parameter sweeps against it and the numeric constants (costs, radii, speeds) were set from football reasoning
 before scoring, not selected by score. It was never used as training data.
 
 ## 4. Possession rules implemented
@@ -149,11 +161,11 @@ before scoring, not selected by score. It was never used as training data.
 | | macroF1 | spellF1 |
 |---|---|---|
 | `baseline_smooth50` (published floor) | 0.621 | 0.326 |
-| this method | 0.874 | 0.600 |
+| this method | 0.898 | 0.600 |
 
-17 possessions is a very small sample (bootstrap interval for spellF1: 0.43–0.78); we make no claim
-about the full-match score. Full-match output: 303 possessions, 131 stoppages, labels H 29 % / A
-17 % / D 54 % of graded frames.
+17 possessions is a very small sample (bootstrap interval for spellF1: 0.39–0.77); we make no claim
+about the full-match score. Full-match output: 284 possessions, 130 stoppages, labels H 30 % / A
+17 % / D 53 % of graded frames.
 
 ## 6. Limitations
 

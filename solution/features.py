@@ -15,7 +15,37 @@ def rolling_nanmean(x, half):
         return np.where(n > 0, (c[hi] - c[lo]) / n, np.nan)
 
 
-def compute(d):
+KEEPER_DEPTH = 16.5   # m from a goal line: the depth of the penalty area
+KEEPER_SHARE = 0.8    # a track that spends this share of the match that deep is a goalkeeper
+
+
+def frame_teams(px, team, L, blocks):
+    """(n_frames, n_slots) team of every track on every frame: 0 home, 1 away.
+
+    The tracker keeps one slot per goalkeeper, but at times it puts that slot on the goalkeeper
+    at the other end -- who plays for the other team. A goalkeeper slot is recognised by where it
+    lives (inside a penalty-area depth for most of the match), and on each frame it belongs to
+    whichever team is defending the half of the pitch it is standing in. Which team defends which
+    end in each half is read from where the outfield tracks of each team are on average."""
+    n, k = px.shape
+    out = np.broadcast_to(team, (n, k)).copy()
+    idx = np.concatenate([np.arange(a, b + 1) for a, b in blocks])
+    x = px[idx]
+    seen = ~np.isnan(x)
+    with np.errstate(invalid="ignore"):
+        deep = (x < KEEPER_DEPTH) | (x > L - KEEPER_DEPTH)
+    keeper = deep.sum(axis=0) > KEEPER_SHARE * np.maximum(seen.sum(axis=0), 1)
+    for a, b in blocks:
+        xs = px[a:b + 1]
+        mean_x = [np.nanmean(xs[:, (team == t) & ~keeper]) for t in (0, 1)]
+        left = 0 if mean_x[0] < mean_x[1] else 1          # the team defending the x = 0 goal
+        for s in np.flatnonzero(keeper):
+            with np.errstate(invalid="ignore"):
+                out[a:b + 1, s] = np.where(xs[:, s] < L / 2, left, 1 - left)
+    return out
+
+
+def compute(d, blocks):
     px, py, ps, team = d["px"], d["py"], d["ps"], d["team"]
     bx, by = d["bx"].astype(np.float64), d["by"].astype(np.float64)
     L, W = d["pitch"]
@@ -51,8 +81,9 @@ def compute(d):
     # nearest player of each team to the ball
     dist = np.hypot(px - bx[:, None].astype(np.float32), py - by[:, None].astype(np.float32))
     dist = np.where(np.isnan(dist), np.inf, dist)
-    dH = dist[:, team == 0].min(axis=1)
-    dA = dist[:, team == 1].min(axis=1)
+    teams = frame_teams(px, team, L, blocks)
+    dH = np.where(teams == 0, dist, np.inf).min(axis=1)
+    dA = np.where(teams == 1, dist, np.inf).min(axis=1)
 
     touch = touches(bx, by, dH, dA)
 
