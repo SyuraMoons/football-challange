@@ -1,3 +1,8 @@
+> **Team wo ai ni — submission.** Our solution lives in [`solution/`](solution/): see
+> [`solution/README.md`](solution/README.md) to regenerate the possession file and
+> [`solution/wo_ai_ni.md`](solution/wo_ai_ni.md) for the technical document. Everything else in this
+> repository is the organisers' challenge kit, unchanged.
+
 # More than a Hack 2027 — Phase 1: Ball Possession
 
 **Organised by [Metrica Sports](https://metrica-sports.com), [FC Barcelona](https://www.fcbarcelona.com)
