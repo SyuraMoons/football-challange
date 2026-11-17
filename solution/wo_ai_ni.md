@@ -5,7 +5,8 @@ More than a Hack 2027, Phase 1. Team **wo ai ni**. Match: FC Barcelona (H) vs At
 ## 1. Approach
 
 A hidden Markov model with three labels — `H`, `A`, `D` — decoded with Viterbi over each half of
-the tactical tracking. No video, no neural network, no labelled training data.
+the tactical tracking. No video, no neural network, no labelled data from this match. Two distance
+constants were checked and chosen on labelled data from seven other matches (§3).
 
 Why this rather than a per-frame classifier: the ranking metric (`spellF1`) scores possessions as
 objects, and the provided baseline shows that per-frame decisions fragment into hundreds of
@@ -43,8 +44,8 @@ Because consecutive frames are strongly correlated, alive/dead log-likelihoods a
 
 For every frame with a ball we take the distance from the ball to the nearest home player and to
 the nearest away player. The evidence is signed and bounded: it is full when one team has a player
-within 1.5 m and the other team is at least 1 m further away, fades linearly to zero when the
-nearest player is 3.5 m away, and is zero when both teams are equally close (a challenge) or the
+within 0.75 m and the other team is at least 1 m further away, fades linearly to zero when the
+nearest player is 3.0 m away, and is zero when both teams are equally close (a challenge) or the
 ball is not tracked. A ball in flight or a contested ball therefore says nothing.
 
 **Goalkeepers are put back on their own team.** The tracker keeps one slot per goalkeeper, but
@@ -143,15 +144,71 @@ only needs "nearest player of each team".
 - **Smart Tagging phases as a consistency check.** The automatic phase tags (Build Up, Progression,
   …) carry a team. We used the share of frames in those phases that our labels give to the tagged
   team as a ground-truth-free check when comparing variants: 0.467 own / 0.180 opponent before the
-  pass-by rule, 0.485 / 0.157 after; 0.489 / 0.164 for the submitted file. They are not an input
-  to the model.
+  pass-by rule, 0.485 / 0.157 after. The exact tag selection behind those figures was not recorded,
+  so `tools/gtfree.py` now fixes it (Build Up and Progression tags with a team): 0.748 / 0.108 for
+  the previous submission, 0.738 / 0.101 for this one. The tags are not an input to the model.
+- **Trusting a missing ball less in open play.** When the tracker loses the ball for a few seconds
+  during play, the stretch can be decoded as a stoppage (§6). On the seven labelled DFL matches of
+  §3, with the ball hidden the way the challenge tracker loses it, weakening the "ball missing"
+  evidence lowered the score on 6 or 7 of 7 matches (−0.004 to −0.018 spellF1), and a decoder with
+  separate "play on, ball lost" states lowered it on 7 of 7 (−0.016). Not used.
+- **A lower weight on the alive/dead evidence** (0.07 instead of 0.15). The DFL selection of §3 picked
+  it together with the two radii. On this match it relabels 4,285 graded frames from stoppage to
+  play; on those frames the ball is in view 95 % of the time and the players move at a median
+  1.32 m/s, the profile of the dead-ball-in-view component (1.34 m/s) and not of play (2.67 m/s).
+  Stoppages with the ball in view are the one case the DFL simulation cannot represent (§3), so the
+  alive/dead weight was left at 0.15. See §3 for how this was found.
 
 ## 3. Training data
 
-None. No labelled dataset from this or any other match, no pre-trained model, no external data.
-The only fitted quantities are the alive/dead emission parameters of §1.1, estimated by
-unsupervised EM on the provided match. No hand annotation or hand correction of any kind was made,
-and no rule or constant refers to a specific frame of the match.
+No labelled data from this match and no pre-trained model. The fitted quantities are the alive/dead
+emission parameters of §1.1, estimated by unsupervised EM on the provided match. No hand annotation
+or hand correction of any kind was made, and no rule or constant refers to a specific frame of the
+match.
+
+**Labelled data from other matches (validation and two constants).** We used the public DFL
+Bundesliga dataset (Bassek et al. 2025, *Scientific Data*, figshare doi:10.6084/m9.figshare.28196177,
+CC BY 4.0): seven matches with 25 Hz tracking and an official per-frame ball status and ball
+possession. The decoder was run on them unchanged and scored with the organisers' metric
+(`evaluation/possession_metrics.py`). Three differences from the challenge data were bridged with
+figures measured on the challenge tracking alone, never its labels:
+
+- *Ball visibility.* The DFL ball is tracked on every frame; the challenge ball is missing on 41 % of
+  graded frames, in long gaps that sit mostly on stoppages. The ball was removed from the DFL
+  tracking in that pattern (two random draws per match).
+- *Ball smoothness.* The challenge ball is smoother (frame-to-frame ball acceleration about half that
+  of the DFL ball at the median, a third at the 90th percentile; about 17 detectable touches per
+  minute against 28); a ±8-frame moving average on the DFL ball matches it. Scores were also computed on the raw DFL ball.
+- *Possession definition.* The DFL possession flag changes team on every touch (about 8 possessions
+  per minute of play, against about 4 in the public window), while the challenge counts controlled
+  possession only. A flip in open play shorter than 1.5, 2 or 3 s was given back to the team that had
+  the ball, and scores are reported for all three references.
+
+On this test the previous constants scored spellF1 0.561 (smoothed ball, 2 s reference). A
+single-constant sweep showed most constants at or near their best (pass speed, touch threshold,
+switch and dead-ball costs, minimum stoppage) and flagged the two proximity radii, the alive/dead
+weight and the switch cost. A joint grid over those four (108 settings, both ball models) was then
+scored, with a selection rule written down before the results came in (`tools/choose.py`): best
+mean gain over all six conditions and seven matches, accepted only if it beats the previous
+constants on at least 6 of 7 matches and, chosen with one match held out, on at least 6 of 7
+held-out matches. It picked control radius 0.75 m (was 1.5), fade radius 3.0 m (was 3.5) and
+alive/dead weight 0.07 (was 0.15), switch cost unchanged: up on 7 of 7 matches, held-out gain
++0.007 and positive on 6 of 7.
+
+**What we shipped, and how it was decided.** After that decision we scored the resulting file on
+the public window as a pipeline check; it fell from 0.600 to 0.516 spellF1, almost all of it
+stoppage frames labelled as play. That drop is what made us look further, and we say so plainly.
+The cause was found without ground truth: the change of alive/dead weight alone relabels 4,285 graded
+frames of the full match from stoppage to play, and those frames have the ball in view and the
+activity of a dead ball (§2.1). The DFL simulation hides the ball during most stoppages, so it barely
+contains stoppages with the ball in view; with the simulation matched more closely to the challenge
+tracking (ball in view during about a third of stoppages, more losses in open play;
+`tools/recheck_dfl.py`) the lower weight still looks harmless there, which confirms the test is blind
+to this case rather than evidence for the change. We therefore kept the alive/dead weight at 0.15
+and shipped only the two radii. On DFL the radii alone gain +0.006 / +0.016 spellF1 at the 2 s
+reference (smoothed / raw ball), up on 6 of 7 matches in both, and +0.009 (6 of 7) under the closer
+simulation; at the 1.5 s reference the gain is about zero. The radii-only file was not scored on the
+public window before this decision; its score is in §5.
 
 **Use of the public 5-minute ground truth.** It was used to check the pipeline (alignment, label
 meaning) and to diagnose classes of failure while developing: it exposed a bug in switch placement
@@ -174,8 +231,9 @@ them. A touch threshold of 3 scored the same as the shipped value and 6 scored l
 rule and the decision not to use touches as evidence agree with the window, but both rest on the
 ground-truth-free checks of §1.2 and §2.1 (possession counts on the full match and the tag check).
 The later changes (goalkeeper correction, ball-out rule) were kept although the window's possession
-score at IoU 0.5 fell from 0.688 to 0.643 with them. The remaining constants (costs, radii, speeds)
-were set from football reasoning before scoring. The window was never used as training data.
+score at IoU 0.5 fell from 0.688 to 0.643 with them. The remaining constants (costs, speeds) were
+set from football reasoning before scoring; the radii were later chosen on the DFL matches as
+described above. The window was never used as training data.
 
 ## 4. Possession rules implemented
 
@@ -194,11 +252,14 @@ were set from football reasoning before scoring. The window was never used as tr
 | | macroF1 | spellF1 |
 |---|---|---|
 | `baseline_smooth50` (published floor) | 0.621 | 0.326 |
-| this method | 0.898 | 0.600 |
+| previous submission (radii 1.5 / 3.5 m) | 0.898 | 0.600 |
+| DFL selection with alive/dead weight 0.07 (not shipped, §3) | 0.836 | 0.516 |
+| **this method** (radii 0.75 / 3.0 m) | 0.874 | 0.586 |
 
-17 possessions is a very small sample (bootstrap interval for spellF1: 0.39–0.77); we make no claim
-about the full-match score. Full-match output: 282 possessions, 126 stoppages, labels H 30 % / A
-17 % / D 53 % of graded frames.
+17 possessions is a very small sample (bootstrap interval for spellF1: 0.37–0.75); the difference
+between the previous and the shipped radii is well inside it, and we make no claim about the
+full-match score. Full-match output: 250 possessions, 129 stoppages, labels H 30 % / A 16 % / D 54 %
+of graded frames.
 
 ## 6. Limitations
 
@@ -209,11 +270,11 @@ about the full-match score. Full-match output: 282 possessions, 126 stoppages, l
   onset there lags by roughly a second, until activity falls. The whistle detector of §2.1 is not
   yet precise enough to fix this.
 - **Very short possessions** are mostly missed: a change of possession needs about 0.6 s of clear
-  control, and only 3 % of our possessions last under a second. The public window contains
+  control, and only 2 % of our possessions last under a second. The public window contains
   possessions of 0.8 s and 1.3 s, so the reference counts some that we do not.
 - **Aerial balls** are projected onto the pitch by the tracker, so "nearest player" can be wrong
   under a high ball, and a high ball near the far touchline can look out.
-- **Dead-ball share** (53 % of graded frames) is on the high side. Part of it is real — the
+- **Dead-ball share** (54 % of graded frames) is on the high side. Part of it is real — the
   graded second half begins almost two minutes before its kick-off, and the stoppages before the
   four after-goal kick-offs that Smart Tagging marks, plus one other stop of two and a half
   minutes, add up to about twelve minutes — but some slow build-up may be absorbed into
@@ -223,8 +284,12 @@ about the full-match score. Full-match output: 282 possessions, 126 stoppages, l
   few frames only, and light touches during a dribble are not detected at all.
 
 With more time: a whistle detector that separates the referee from the crowd, passes modelled
-explicitly (ball leaves player A, arrives at player B), and validation on labelled possession data
-from other matches.
+explicitly (ball leaves player A, arrives at player B), and an external validation set whose
+stoppages look like the challenge's (ball in view while it is placed), so the alive/dead side can
+be tuned as well as the team side.
+- **Validation data.** The DFL matches label possession on every touch and track the ball
+  everywhere; our bridges for both (§3) are approximations, and the 1.5 / 2 / 3 s references
+  disagree on small changes.
 
 ## 7. Reproduction
 

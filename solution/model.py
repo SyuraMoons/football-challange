@@ -11,11 +11,11 @@ import numpy as np
 H, A, D = 0, 1, 2
 LETTERS = np.array(["H", "A", "D"])
 
-# ---- fixed, football-level constants (not fitted to any ground truth) ----
+# ---- fixed constants, never fitted to this match; CONTROL_R and FADE_R checked on other matches (DFL, wo_ai_ni.md §3) ----
 TEMPER = 0.15          # consecutive frames are highly correlated: down-weight alive/dead evidence
 OUT_MARGIN = 0.5       # m outside the lines before the ball counts as out
-CONTROL_R = 1.5        # m: a player this close to the ball can be controlling it
-FADE_R = 3.5           # m: beyond this, proximity says nothing
+CONTROL_R = 0.75       # m: a player this close to the ball can be controlling it (DFL, §3)
+FADE_R = 3.0           # m: beyond this, proximity says nothing (DFL, §3)
 KAPPA = 0.6            # log-likelihood per frame of clear, uncontested control
 PASS_SPEED = 7.0       # m/s: faster than a dribble
 PLAYED_WIN = 12        # frames either side of a touch in which proximity counts in full

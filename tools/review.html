@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Possession review</title>
+<style>
+  :root { --bg:#14161a; --panel:#1e2127; --line:#30343c; --text:#e8eaed; --dim:#9aa0a6;
+          --H:#3b82f6; --A:#ef4444; --D:#6b7280; --X:#23262c; --mark:#facc15; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, sans-serif; }
+  #app { display:grid; grid-template-columns:minmax(0,1fr) 380px; height:100vh; }
+  #left { display:flex; flex-direction:column; min-width:0; padding:10px; gap:8px; }
+  #right { border-left:1px solid var(--line); display:flex; flex-direction:column; min-height:0; }
+  video { width:100%; flex:1; min-height:0; background:#000; }
+  #hud { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .pill { padding:4px 12px; border-radius:6px; font-weight:700; font-size:18px; min-width:150px; text-align:center; }
+  .small { color:var(--dim); font-variant-numeric:tabular-nums; }
+  canvas { width:100%; display:block; border-radius:4px; cursor:pointer; background:var(--X); }
+  #full { height:34px; } #zoom { height:58px; }
+  #top { padding:10px; border-bottom:1px solid var(--line); display:flex; flex-direction:column; gap:6px; }
+  select, button, input[type=file] { background:var(--panel); color:var(--text); border:1px solid var(--line); border-radius:6px; padding:5px 8px; font:inherit; }
+  #list { overflow:auto; flex:1; }
+  .it { padding:8px 10px; border-bottom:1px solid var(--line); cursor:pointer; display:grid; grid-template-columns:22px 1fr; gap:6px; }
+  .it:hover { background:var(--panel); } .it.cur { background:#2a2f38; outline:1px solid var(--mark); }
+  .it.seen { opacity:.5; }
+  .cat { font-weight:600; } .t { color:var(--dim); font-variant-numeric:tabular-nums; }
+  kbd { background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:0 5px; font-size:12px; }
+  #help { padding:8px 10px; border-top:1px solid var(--line); color:var(--dim); font-size:12px; line-height:1.9; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="left">
+    <div id="hud">
+      <input type="file" id="pick" accept="video/*">
+      <span class="pill" id="pred">–</span>
+      <span class="pill" id="truth" style="display:none"></span>
+      <span class="small" id="pos"></span>
+      <span class="small" id="ball"></span>
+    </div>
+    <video id="v" controls></video>
+    <canvas id="zoom" height="58"></canvas>
+    <canvas id="full" height="34"></canvas>
+  </div>
+  <div id="right">
+    <div id="top">
+      <div><b id="title"></b> <span class="small" id="count"></span></div>
+      <select id="filter"></select>
+    </div>
+    <div id="list"></div>
+    <div id="help">
+      <kbd>space</kbd> play/pause · <kbd>←</kbd><kbd>→</kbd> 1 s · <kbd>,</kbd><kbd>.</kbd> one frame ·
+      <kbd>n</kbd><kbd>p</kbd> next/previous item · <kbd>t</kbd> next label change · <kbd>s</kbd> mark seen ·
+      <kbd>[</kbd><kbd>]</kbd> speed<br>
+      Top strip: ±30 s (ours above, public truth below, yellow = no ball tracked). Bottom strip: whole match.
+    </div>
+  </div>
+</div>
+<script>
+const DATA = /*DATA*/null;
+const NAME = ["BARCELONA", "ATHLETIC", "DEAD BALL"], COL = ["#3b82f6", "#ef4444", "#6b7280"];
+const $ = id => document.getElementById(id);
+const v = $("v"), FPS = DATA.fps;
+let cur = -1, items = DATA.queue, seen = {};
+try { seen = JSON.parse(localStorage.getItem("seen:" + DATA.labels) || "{}"); } catch (e) {}
+const key = it => it.cat + ":" + it.a;
+
+function find(segs, f) {          // binary search over [start, stop, ...] runs
+  let lo = 0, hi = segs.length - 1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (f < segs[m][0]) hi = m - 1; else if (f >= segs[m][1]) lo = m + 1; else return segs[m]; }
+  return null;
+}
+const frame = () => Math.floor(v.currentTime * FPS + 0.001);
+const seek = f => { v.currentTime = Math.max(0, f / FPS + 0.001); };
+const clock = f => { const s = f / FPS; return Math.floor(s / 60) + ":" + (s % 60).toFixed(1).padStart(4, "0"); };
+
+$("pick").onchange = e => { const file = e.target.files[0]; if (file) v.src = URL.createObjectURL(file); };
+
+function setPill(el, seg, prefix) {
+  if (!seg) { el.textContent = prefix + "not graded"; el.style.background = "#23262c"; return; }
+  el.textContent = prefix + NAME[seg[2]]; el.style.background = COL[seg[2]];
+}
+function strip(c, from, to) {
+  const w = c.width = c.clientWidth * devicePixelRatio, h = c.height, g = c.getContext("2d");
+  const x = f => (f - from) / (to - from) * w;
+  g.clearRect(0, 0, w, h);
+  const band = (segs, y, hh, col) => { for (const s of segs) { if (s[1] < from || s[0] > to) continue;
+    g.fillStyle = col || COL[s[2]]; g.fillRect(x(Math.max(s[0], from)), y, Math.max(1, x(Math.min(s[1], to)) - x(Math.max(s[0], from))), hh); } };
+  const two = h > 40;
+  band(DATA.pred, 0, two ? h * 0.42 : h * 0.6);
+  if (two) { band(DATA.gt, h * 0.46, h * 0.3); band(DATA.unseen, h * 0.82, h * 0.18, "#facc15"); }
+  else { g.fillStyle = "#facc15"; for (const it of items) g.fillRect(x(it.a), h * 0.65, 2, h * 0.35); }
+  g.fillStyle = "#fff"; g.fillRect(x(frame()) - 1, 0, 2, h);
+}
+function draw() {
+  const f = frame();
+  setPill($("pred"), find(DATA.pred, f), "");
+  const t = find(DATA.gt, f); $("truth").style.display = t ? "" : "none"; if (t) setPill($("truth"), t, "truth: ");
+  $("pos").textContent = "frame " + f + " · " + clock(f);
+  $("ball").textContent = find(DATA.unseen, f) ? "no ball in tracking" : "";
+  strip($("zoom"), f - 750, f + 750); strip($("full"), 0, DATA.n);
+  requestAnimationFrame(draw);
+}
+$("zoom").onclick = e => seek(frame() - 750 + e.offsetX / e.target.clientWidth * 1500);
+$("full").onclick = e => seek(e.offsetX / e.target.clientWidth * DATA.n);
+
+function render() {
+  const sel = $("filter").value;
+  items = DATA.queue.filter(it => !sel || it.cat === sel);
+  $("count").textContent = items.length + " moments, " + items.filter(it => seen[key(it)]).length + " seen";
+  $("list").innerHTML = "";
+  items.forEach((it, i) => {
+    const d = document.createElement("div");
+    d.className = "it" + (seen[key(it)] ? " seen" : "") + (i === cur ? " cur" : "");
+    const box = document.createElement("input"); box.type = "checkbox"; box.checked = !!seen[key(it)];
+    box.onclick = ev => { ev.stopPropagation(); mark(it, box.checked); };
+    const body = document.createElement("div");
+    const a = document.createElement("div"); a.className = "cat"; a.textContent = it.cat;
+    const b = document.createElement("div"); b.textContent = it.text;
+    const c = document.createElement("div"); c.className = "t"; c.textContent = clock(it.a) + " – " + clock(it.b) + " · frames " + it.a + "–" + it.b;
+    body.append(a, b, c); d.append(box, body);
+    d.onclick = () => go(i);
+    $("list").append(d);
+  });
+}
+function mark(it, on) { if (on) seen[key(it)] = 1; else delete seen[key(it)];
+  try { localStorage.setItem("seen:" + DATA.labels, JSON.stringify(seen)); } catch (e) {} render(); }
+function go(i) { if (i < 0 || i >= items.length) return; cur = i; seek(items[i].a - 75); render();
+  const el = $("list").children[i]; if (el) el.scrollIntoView({ block: "nearest" }); }
+
+const cats = {}; DATA.queue.forEach(it => cats[it.cat] = (cats[it.cat] || 0) + 1);
+$("filter").innerHTML = "<option value=''>All categories (" + DATA.queue.length + ")</option>" +
+  Object.keys(cats).map(c => "<option value='" + c.replace(/'/g, "&#39;") + "'>" + c + " (" + cats[c] + ")</option>").join("");
+$("filter").onchange = () => { cur = -1; render(); };
+$("title").textContent = DATA.labels;
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey) return;
+  const k = e.key; let used = true;
+  if (k === " ") v.paused ? v.play() : v.pause();
+  else if (k === "ArrowLeft") seek(frame() - FPS);
+  else if (k === "ArrowRight") seek(frame() + FPS);
+  else if (k === ",") { v.pause(); seek(frame() - 1); }
+  else if (k === ".") { v.pause(); seek(frame() + 1); }
+  else if (k === "n") go(cur + 1);
+  else if (k === "p") go(cur - 1);
+  else if (k === "s" && cur >= 0) mark(items[cur], !seen[key(items[cur])]);
+  else if (k === "t") { const f = frame(), s = DATA.pred.find(s => s[0] > f + 2); if (s) seek(s[0] - 50); }
+  else if (k === "[") v.playbackRate = Math.max(0.25, v.playbackRate / 2);
+  else if (k === "]") v.playbackRate = Math.min(4, v.playbackRate * 2);
+  else used = false;
+  if (used) e.preventDefault();
+});
+render(); draw();
+</script>
+</body>
+</html>
